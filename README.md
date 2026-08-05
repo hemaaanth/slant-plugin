@@ -7,7 +7,7 @@ and collaborate on shared documents (comments, suggestions, edits, live presence
 ## Install
 
 ```
-/plugin marketplace add <owner>/slant-plugin
+/plugin marketplace add hemaaanth/slant-plugin
 /plugin install slant
 ```
 
