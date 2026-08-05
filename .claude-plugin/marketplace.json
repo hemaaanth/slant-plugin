@@ -1,0 +1,14 @@
+{
+  "name": "slant",
+  "owner": {
+    "name": "Slant",
+    "url": "https://slant.page"
+  },
+  "plugins": [
+    {
+      "name": "slant",
+      "source": "./",
+      "description": "Publish local markdown to Slant (slant.page) as shareable, editable docs, and collaborate on shared Slant documents — comments, suggestions, edits, live presence."
+    }
+  ]
+}

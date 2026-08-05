@@ -1,0 +1,10 @@
+{
+  "name": "slant",
+  "version": "1.3.0",
+  "description": "Publish local markdown to Slant (slant.page) as shareable, editable docs, and collaborate on shared Slant documents — comments, suggestions, edits, live presence.",
+  "author": {
+    "name": "Slant",
+    "url": "https://slant.page"
+  },
+  "homepage": "https://slant.page/agents"
+}
