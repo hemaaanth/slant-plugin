@@ -11,10 +11,10 @@ description: Collaborate on Slant (slant.page) documents — publish local markd
 > workspace-scoped connection to list / search / read / create / comment / suggest / edit / publish
 > across your documents — not just the single doc a share link grants. Server: `https://slant.page/api/mcp`
 > with a token from Slant → **Settings → AI agents** (e.g. `claude mcp add --transport http slant https://slant.page/api/mcp --header "Authorization: Bearer <token>"`).
-> This skill covers the **share-link bridge** (one-off, zero-install access to a single document)
-> and **publishing** local markdown via the same MCP endpoint over plain curl.
+> This skill covers **share links** (one-off, zero-install access to a single document through
+> `/api/v1` with the link's token) and **publishing** local markdown via the same MCP endpoint over plain curl.
 
-<!-- version: 1.3.0 -->
+<!-- version: 1.4.0 -->
 
 ## Self-Update
 
@@ -39,7 +39,7 @@ These helpers require `curl` and `jq`. Install jq if needed:
 
 ## When This Skill Activates
 
-- **Share URL** — You receive a Slant share URL like `slant.page/d/{docId}?token={token}` — or a legacy Writer URL at `writer.hem.so/d/{docId}?token={token}` — use the bridge helpers below to collaborate on the document. Legacy Writer URLs and helper names remain supported during the migration.
+- **Share URL** — You receive a Slant share URL like `slant.page/d/{docId}?token={token}` — or a legacy Writer URL at `writer.hem.so/d/{docId}?token={token}` — use the helpers below to collaborate on the document. Legacy Writer URLs and helper names remain supported during the migration.
 - **Publish request** — The user asks to "save this to Slant", "publish to Slant", "open this in Slant", or "get me a Slant link" for a local markdown file. Use `slant-publish`.
 - **Wrap-up offer** — You just produced a substantial markdown deliverable. Offer to publish it (see the handoff contract below).
 
@@ -105,10 +105,10 @@ slant-publish() {
 
 Slant has two document modes:
 
-- **Manual mode** — A direct editing environment. The content you see in `/state` is the author's writing.
-- **Chat mode** — The document was created through an AI interview process. AI-generated drafts exist separately and are not returned by `/state`. The content you see is the working draft that the author chose and is refining.
+- **Manual mode** — A direct editing environment. The content you see with `slant-read` is the author's writing.
+- **Chat mode** — The document was created through an AI interview process. AI-generated drafts exist separately and are not returned by `slant-read`. The content you see is the working draft that the author chose and is refining.
 
-In both modes, you work with the same content — the nodes returned by `/state`. Focus on that content. Don't worry about AI drafts; they're for the author's reference.
+In both modes, you work with the same content — the nodes returned by `slant-read`. Focus on that content. Don't worry about AI drafts; they're for the author's reference.
 
 ## Per-Document Autonomy
 
@@ -124,7 +124,7 @@ Don't assume — different documents have different needs.
 
 ### slant-join <url>
 
-Join a Slant document. Extracts the docId and token from the URL, registers your presence, and reads the document state.
+Join a Slant document. Extracts the docId and token from the URL, registers your presence, and reads the document.
 
 ```bash
 slant-join() {
@@ -142,14 +142,14 @@ slant-join() {
 
   # Register presence
   local presence_result
-  presence_result=$(curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  presence_result=$(curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"name": "'"Agent"'", "type": "agent", "status": "active"}' 2>&1) || true
+    -d '{"name": "'"Agent"'", "status": "active"}' 2>&1) || true
 
   # Read document state
   local state
-  state=$(curl -sf "$SLANT_BASE/api/bridge/$SLANT_DOC/state" \
+  state=$(curl -sf "$SLANT_BASE/api/v1/documents/$SLANT_DOC" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Accept: application/json")
 
@@ -160,12 +160,11 @@ slant-join() {
   fi
 
   local title=$(echo "$state" | jq -r '.title // "Untitled"')
-  local mode=$(echo "$state" | jq -r '.mode // "manual"')
   local node_count=$(echo "$state" | jq '.nodes | length')
   local comment_count=$(echo "$state" | jq '.comments | length')
 
   echo "Document: $title"
-  echo "Mode: $mode | Nodes: $node_count | Comments: $comment_count"
+  echo "Nodes: $node_count | Comments: $comment_count"
   echo ""
   echo "Ready. Use slant-read, slant-comment, slant-suggest, slant-edit, slant-delete."
 }
@@ -173,17 +172,17 @@ slant-join() {
 
 ### slant-read
 
-Read the current document state. Uses SLANT_DOC and SLANT_TOKEN set by slant-join.
+Read the document: title, markdown, node ids, open comments and pending suggestions. Uses SLANT_DOC and SLANT_TOKEN set by slant-join.
 
 ```bash
 slant-read() {
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "reading"}' > /dev/null 2>&1 || true
 
   local state
-  state=$(curl -sf "$SLANT_BASE/api/bridge/$SLANT_DOC/state" \
+  state=$(curl -sf "$SLANT_BASE/api/v1/documents/$SLANT_DOC" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Accept: application/json")
 
@@ -195,7 +194,7 @@ slant-read() {
 
   echo "$state"
 
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -210,22 +209,22 @@ Leave a comment anchored to specific text in a node.
 slant-comment() {
   local node_id="$1" original_text="$2" comment="$3"
 
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "writing"}' > /dev/null 2>&1 || true
 
   local result
-  result=$(curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/comments" \
+  result=$(curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/comments" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg nid "$node_id" --arg ot "$original_text" --arg c "$comment" \
-      '{nodeId: $nid, originalText: $ot, comment: $c}')")
+      '{nodeId: $nid, originalText: $ot, body: $c}')")
 
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
     echo "Error: Failed to post comment."
-    curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+    curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
       -H "Authorization: Bearer $SLANT_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -233,7 +232,7 @@ slant-comment() {
   fi
 
   echo "Comment posted."
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -248,13 +247,13 @@ Suggest a text replacement.
 slant-suggest() {
   local node_id="$1" original_text="$2" proposed_text="$3"
 
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "writing"}' > /dev/null 2>&1 || true
 
   local result
-  result=$(curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/suggestions" \
+  result=$(curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/suggestions" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg nid "$node_id" --arg ot "$original_text" --arg pt "$proposed_text" \
@@ -263,7 +262,7 @@ slant-suggest() {
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
     echo "Error: Failed to post suggestion."
-    curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+    curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
       -H "Authorization: Bearer $SLANT_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -271,7 +270,7 @@ slant-suggest() {
   fi
 
   echo "Suggestion posted."
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -286,22 +285,22 @@ Directly replace text in a node. Requires edit permission.
 slant-edit() {
   local node_id="$1" original_text="$2" replacement_text="$3"
 
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "writing"}' > /dev/null 2>&1 || true
 
   local result
-  result=$(curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/edit" \
+  result=$(curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/edit" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg nid "$node_id" --arg ot "$original_text" --arg rt "$replacement_text" \
-      '{nodeId: $nid, originalText: $ot, replacementText: $rt}')")
+      '{operation: "replace_text", nodeId: $nid, originalText: $ot, replacementText: $rt}')")
 
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
     echo "Error: Failed to edit."
-    curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+    curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
       -H "Authorization: Bearer $SLANT_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -309,7 +308,7 @@ slant-edit() {
   fi
 
   echo "Edit applied."
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -324,21 +323,21 @@ Delete a single block-level node. Requires edit permission.
 slant-delete() {
   local node_id="$1"
 
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "writing"}' > /dev/null 2>&1 || true
 
   local result
-  result=$(curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/delete" \
+  result=$(curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/edit" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg nid "$node_id" '{nodeId: $nid}')")
+    -d "$(jq -n --arg nid "$node_id" '{operation: "delete_node", nodeId: $nid}')")
 
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
     echo "Error: Failed to delete node."
-    curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+    curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
       -H "Authorization: Bearer $SLANT_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -346,7 +345,7 @@ slant-delete() {
   fi
 
   echo "Node deleted."
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"status": "active"}' > /dev/null 2>&1 || true
@@ -360,7 +359,7 @@ Update your presence status.
 ```bash
 slant-status() {
   local status="$1"
-  curl -sf -X POST "$SLANT_BASE/api/bridge/$SLANT_DOC/presence" \
+  curl -sf -X POST "$SLANT_BASE/api/v1/documents/$SLANT_DOC/presence" \
     -H "Authorization: Bearer $SLANT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg s "$status" '{status: $s}')"
@@ -430,7 +429,9 @@ writer-update() { slant-update "$@"; }
 - **410 (document_not_found)** — The document has been deleted. Stop all operations and inform the user.
 - **401 (invalid token)** — Your token is invalid or has been revoked. Ask the user for a new share link.
 - **403 (permission denied)** — You don't have the required permission level. Ask the user to grant higher access.
-- **404 (not found)** — The node ID or text you referenced doesn't exist. Re-read the document state with `slant-read`.
+- **400 (bad input)** — The node ID or text you referenced doesn't exist, or a field is missing. The error message says which. Re-read the document with `slant-read`.
+- **404 (not found)** — The document is not the one your token is for.
+- **429 (too many requests)** — Slow down; the message says when to retry.
 
 When any helper fails, it prints an error message and reverts your presence to "active". Don't retry failed operations in a loop — diagnose the error first.
 
@@ -441,7 +442,7 @@ When any helper fails, it prints an error message and reverts your presence to "
 - The `originalText` parameter must exactly match text within the target node. Partial or approximate matches will fail.
 - Your presence name is permanent after the first `slant-join` call. Choose it carefully.
 - Deleting a heading does not delete the paragraphs below it — they are siblings, not children.
-- For chat-mode documents, focus on the content returned by `/state`. AI drafts are separate and not your concern.
+- For chat-mode documents, focus on the content returned by `slant-read`. AI drafts are separate and not your concern.
 
 ## API Reference
 
