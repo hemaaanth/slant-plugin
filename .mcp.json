@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "slant": {
+      "type": "http",
+      "url": "https://slant.page/api/mcp"
+    }
+  }
+}
