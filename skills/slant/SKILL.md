@@ -7,7 +7,7 @@ description: Collaborate on Slant (slant.page) documents — publish local markd
 
 > Slant is a collaborative AI writing editor. Humans and agents work on the same live documents; every change you make is attributed to you.
 
-<!-- version: 2.0.0 -->
+<!-- version: 2.1.0 -->
 
 ## When This Skill Applies
 
@@ -56,7 +56,20 @@ curl -sf -X POST "$B/edit" -H "$H" -H 'Content-Type: application/json' \
 - Read first: every write anchors to a node id, and `originalText` must match the node's text exactly.
 - With a share link, your presence name is fixed the first time you set it. Choose it with care.
 - Deleting a heading does not delete the paragraphs below it; they are siblings, not children.
-- Chat-mode documents also have AI drafts. Work on the document body; the drafts are for the author.
+- Chat-mode drafts belong to Slant’s conversation workflow. Never construct them yourself or replace that workflow with manual document writes.
+
+## Native Slant Writing
+
+When asked to use Slant to interview, research or generate drafts:
+1. Create a document with mode chat. Creating it does not start a conversation. Markdown in chat mode is a template, not a topic message.
+2. Discover conversation.send, conversation.get and conversation.approve with list_actions.
+3. Send the topic with conversation.send (text). Poll jobs.get, then read conversation.get. All messages and proposals share the web app’s history.
+4. Relay Slant’s questions to the author. Use voiceId or knowledgeBaseIds on conversation.send for setup choices. Never invent personal answers or present your editorial choices as author direction.
+5. Continue the conversation with actual answers and feedback until Slant proposes angles. To request changes, send feedback; the old proposal becomes invalid.
+6. Approve the saved proposalId with zero-based angleIndexes. Only pass skipGapIndexes when the author explicitly chose to draft with those unanswered gaps. Preflight errors require a new check.
+7. Poll the approval job, then read drafts.list. Slant’s internal pipeline generates the drafts. There is no direct drafts.generate action. Do not submit your own brief or angles.
+
+Manual documents remain available for content the caller writes. Clearly distinguish manual writing from Slant-agent drafting. Resume a Slant tool approval via conversation.send with runId and resumeData from the conversation; do not silently approve a destructive edit.
 
 ## Per-Document Autonomy
 
